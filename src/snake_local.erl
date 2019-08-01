@@ -30,25 +30,33 @@
 -record(state, {
   game_state,
   worker_node,
-  corners,
-  food
+  corners
 }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+start_remote(MaxX,MaxY,NumOfSnakes,FoodCount,NodeA,NodeB,NodeC,NodeD) ->
+  X = MaxX div 2,
+  Y = MaxY div 2,
+  Food = FoodCount div 4,
+  {ok,_Manager} = gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY, [{workerA,NodeA},{workerB,NodeB},{workerC,NodeC},{workerD,NodeD}]], []),
+  snake_worker:start({NodeA,workerA}, 0,X,0,Y,NumOfSnakes,Food,{local_game, node()}),
+  snake_worker:start({NodeB,workerB}, X+1,MaxX,0,Y,NumOfSnakes,Food,{local_game, node()}),
+  snake_worker:start({NodeC,workerC}, 0,X,Y+1,MaxY,NumOfSnakes,Food,{local_game, node()}),
+  snake_worker:start({NodeD,workerD}, X+1,MaxX,Y+1,MaxY,NumOfSnakes,Food,{local_game, node()}).
+
 start(MaxX,MaxY,NumOfSnakes,FoodCount) ->
   X = MaxX div 2,
   Y = MaxY div 2,
-  Food1 = generateFood(X,Y,0,0,FoodCount,[]),
-  Food2 = generateFood(MaxX-X-1,Y,X+1,0,FoodCount,[]),
-  Food3 = generateFood(X,MaxY-Y-1,0,Y+1,FoodCount,[]),
-  Food4 = generateFood(MaxX-X-1,MaxY-Y-1,X+1,Y+1,FoodCount,[]),
-  snake_worker:start(workerA, 0,X,0,Y,NumOfSnakes,Food1,self()),
-  snake_worker:start(workerB, X+1,MaxX,0,Y,NumOfSnakes,Food2,self()),
-  snake_worker:start(workerC, 0,X,Y+1,MaxY,NumOfSnakes,Food3,self()),
-  snake_worker:start(workerD, X+1,MaxX,Y+1,MaxY,NumOfSnakes,Food4,self()),
-  gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY, Food1 ++ Food2 ++ Food3 ++ Food4], []).
+  Food = FoodCount div 4,
+  {ok,Manager} = gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY], []),
+  snake_worker:start(workerA, 0,X,0,Y,NumOfSnakes,Food,Manager),
+  snake_worker:start(workerB, X+1,MaxX,0,Y,NumOfSnakes,Food,Manager),
+  snake_worker:start(workerC, 0,X,Y+1,MaxY,NumOfSnakes,Food,Manager),
+  snake_worker:start(workerD, X+1,MaxX,Y+1,MaxY,NumOfSnakes,Food,Manager).
+  %gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY], []).
 
 
 call(ID, Msg) ->
@@ -89,10 +97,13 @@ start_link() ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([MinX,MaxX,MinY,MaxY, Food]) ->
+init([MinX,MaxX,MinY,MaxY,Nodes]) ->
+  process_flag(trap_exit,true),
+  {ok, #state{game_state = get_data,worker_node = Nodes, corners = {{MinX,MaxX},{MinY,MaxY}}}};
+init([MinX,MaxX,MinY,MaxY]) ->
   process_flag(trap_exit,true),
   Nodes = [workerA,workerB,workerC,workerD],
-  {ok, #state{game_state = get_data,worker_node = Nodes, corners = {MinX,MaxX,MinY,MaxY},food = Food}}.
+  {ok, #state{game_state = get_data,worker_node = Nodes, corners = {{MinX,MaxX},{MinY,MaxY}}}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -111,10 +122,16 @@ init([MinX,MaxX,MinY,MaxY, Food]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call(timestep, _From, State = #state{worker_node = Nodes}) ->
-  handle_info(timeout,State),
-  lists:foreach(fun(W) -> snake_worker:call(W, move) end ,Nodes),
-  M = lists:map(fun(W) -> snake_worker:call(W, get_data) end ,Nodes),
-  {reply, M , State};
+  Food = lists:flatten(lists:map(fun(W) -> snake_worker:call(W, get_food) end ,Nodes)),
+  SnakeList = lists:foldr(
+    fun(W, Acc) ->
+      {timestep, S} = snake_worker:call(W,{timestep,Food}),
+      S ++ Acc
+    end
+    ,[]
+    ,Nodes),
+  detectColissions(SnakeList),
+  {reply, SnakeList , State};
 
 handle_call(get_data, _From, State = #state{worker_node = Nodes}) ->
   {reply,
@@ -134,6 +151,8 @@ handle_call({move_snake,[{ID,Dir},H | T]}, _From, State) ->
   snake_worker:call(Node,{add_snake,ID,Dir,H,T}),
   {reply, ok, State};
 
+handle_call(get_corners, _From, State = #state{corners = Corners}) ->
+  {reply, Corners, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -149,6 +168,22 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+handle_cast({move_snake,Snake}, State = #state{worker_node = Nodes, corners = Corners}) ->
+  Head = lists:nth(2,Snake),
+  OOB = outOfBounds(Head,Corners),
+  if
+    OOB -> ok;
+    true ->
+      lists:foreach(
+        fun(S) -> snake_worker:cast(S,{add_snake,Snake}) end,
+        Nodes
+      )
+
+  end,
+  {noreply, State};
+
+
 handle_cast(_Request, State) ->
   {noreply, State}.
 
@@ -167,15 +202,6 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-handle_info(timeout, State = #state{game_state = get_data, worker_node = Nodes, food = Food}) ->
-  lists:foreach(
-    fun(Node) ->
-      [{snakes,Snakes},{food,_F}] = snake_worker:call(Node,get_data),
-      lists:foreach(fun(S) -> calcMove(S,Food,Node) end ,Snakes)
-    end,
-    Nodes
-  ),
-  {noreply, State};
 
 
 
@@ -215,6 +241,42 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+headColissions([], Acc) ->Acc;
+headColissions([{{ID,_Dir},H}|T], Acc) ->
+  B = lists:keymember(H,2,T),
+  if
+    B ->
+      {{ID2,_Dir2},H} = lists:keyfind(H,2,T),
+      headColissions(T,[ID,ID2  | Acc]);
+    true ->headColissions(T,Acc)
+  end.
+
+
+detectColissions(SnakeList) ->
+  H = headColissions(lists:map(fun(S) -> list_to_tuple(lists:sublist(S,2)) end, SnakeList),[]),
+  lists:foreach(
+    fun(S) -> stop(S, colission) end,
+    H
+  ),
+  HeadList = lists:map(
+    fun(S) ->
+      [{ID,_Dir},Head] = lists:sublist(S,2),
+      {ID,Head}
+    end
+    , SnakeList
+  ),
+  lists:foreach(fun(X) -> castToAll(X,HeadList) end, HeadList),
+  H.
+
+castToAll({_ID,_Head},[]) -> ok;
+
+castToAll({ID,Head},[{ID2,_Head2} | T]) ->
+  cast(ID2,{cut_node_check,Head}),
+  castToAll({ID,Head},T).
+
+
+
+
 findNode(H) ->
   C = snake_worker:call(workerA,get_corners),
   OOB = outOfBounds(H,C),
@@ -269,44 +331,6 @@ generateFood(SizeX,SizeY) ->
   Ypos = rand:uniform(SizeY),
   {Xpos,Ypos}.
 
-
-calcMove([{ID,Dir} | Locations ],Food,Worker) ->
-  {X,Y} = hd(Locations),
-  Dist = lists:map(
-    fun(F = {X2,Y2}) ->
-      D = math:sqrt(math:pow(X2-X,2) + math:pow(Y2-Y,2)),
-      {D,F}
-    end,
-    Food
-  ),
-  {D,Target} = hd(lists:keysort(1,Dist)),
-  NewDir = getDir({X,Y},Target),
-  if
-    D == 0 -> snake_node:cast(ID,grow), snake_worker:cast(Worker,{remove_food,Target});
-    Dir =:= NewDir-> ok;
-    true ->
-      case snake_node:call(ID,{change_dir,NewDir}) of
-        {cd,NewDir} -> ok;
-        {forbidden_cd,NewDir} -> snake_node:call(ID,{change_dir,getDir(NewDir,{X,Y},Target)}), ok;
-        bad_direction -> ok
-      end
-  end,
-  snake_node:call(ID,move).
-
-getDir({X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
-getDir({X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
-getDir({_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
-getDir({_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
-getDir(_,_) -> 100.
-
-getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood >= X-> ?RIGHT;
-getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood =< X-> ?LEFT;
-getDir(?DOWN,{X,_Y},{Xfood,_Yfood}) when Xfood >= X-> ?RIGHT;
-getDir(?DOWN,{X,_Y},{Xfood,_Yfood}) when Xfood =< X-> ?LEFT;
-getDir(?RIGHT,{_X,Y},{_Xfood,Yfood}) when Yfood >= Y-> ?UP;
-getDir(?RIGHT,{_X,Y},{_Xfood,Yfood}) when Yfood =< Y-> ?DOWN;
-getDir(?LEFT,{_X,Y},{_Xfood,Yfood}) when Yfood >= Y-> ?UP;
-getDir(?LEFT,{_X,Y},{_Xfood,Yfood}) when Yfood =< Y-> ?DOWN.
 
 
 outOfBounds({X,Y}, {{MinX,MaxX},{MinY,MaxY}}) ->

@@ -53,6 +53,13 @@ stop(ID, Reason) ->
 cast(ID, Msg) ->
   gen_server:cast(ID, Msg).
 
+start({Node,ID},MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager) ->
+  spawn(Node,
+    fun() ->
+    spawn(Node, ?MODULE, start, [ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager])
+    end
+  );
+
 start(ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager) ->
   gen_server:start({local, ID}, ?MODULE, [ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager], []).
 %%--------------------------------------------------------------------
@@ -85,11 +92,13 @@ start_link(ID,MinX,MaxX,MinY,MaxY,NumOfSnakes) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food,Manager]) ->
-  SizeX = MaxX - MinX,
-  SizeY = MaxY - MinY,
+init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,FoodCount,Manager]) ->
+  SizeX = MaxX - MinX - 2,
+  SizeY = MaxY - MinY - 2,
+  Food = lists:map(fun({X,Y}) -> {MinX+X+1,MinY+Y+1} end,
+        generateSnakes(FoodCount,SizeX,SizeY,[],[])),
   ID_List = lists:seq(1,NumOfSnakes),
-  SnakeSpawnList = generateSnakesInit(NumOfSnakes,SizeX,SizeY,MinX,MinY,lists:map(fun({X,Y}) -> {MinX+X,MinY+Y} end,Food)),
+  SnakeSpawnList = generateSnakesInit(NumOfSnakes,SizeX,SizeY,MinX,MinY, Food),
   Snakes = spawnSnake(atom_to_list(ID),combine(ID_List,SnakeSpawnList)),
   {ok, #state{id = ID, last_snake = NumOfSnakes, snakes = Snakes, corners = {{MinX,MaxX},{MinY,MaxY}},food = Food,manager = Manager}}.
 
@@ -113,20 +122,43 @@ init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food,Manager]) ->
 handle_call(get_data, _From, State = #state{snakes = Snakes, food = Food, corners = Corners, manager = Manager}) ->
   Reply = lists:map(
     fun(S) ->
-      Snake = snake_node:call(S,get_snake),
-      OOB = outOfBounds(lists:nth(2,Snake),Corners),
-      if
-        OOB ->
-          snake_local:cast(Manager, {move_snake,S}),
-          snake_worker:call(self(),{remove_snakes,[S]}), % TODO implement self call
-          snake_node:stop(S, moved_to_a_different_node);
-        true -> ok
-      end,
-      Snake
+      snake_node:call(S,get_snake)
     end,
     Snakes
   ),%% TODO need to remove moved, snakes from state
   {reply, [{snakes,Reply},{food,Food}], State};
+
+handle_call({timestep,Food}, _From, State = #state{id = _ID,snakes = Snakes, corners = Corners, manager = Manager}) ->
+  ListOut = lists:map(
+    fun(X) ->
+      call(X,get_snake)
+    end,
+    Snakes
+  ),
+
+  lists:foreach(
+    fun(S) ->
+      List = [S | snake_node:call(S,get_head)],
+      calcMove(List,Food),
+      snake_node:call(S,move),
+
+      Snake = snake_node:call(S,get_snake),
+      OOB = outOfBounds(lists:nth(2,Snake),Corners),
+      if
+        OOB ->
+          snake_node:stop(S, moved_to_a_different_node),
+          snake_local:cast(Manager, {move_snake,Snake});
+        true -> ok
+      end
+    end,
+    Snakes),
+
+
+  {reply, {timestep,ListOut}, State};
+
+
+
+
 
 handle_call(get_corners, _From, State = #state{corners = Corners}) ->
   {reply, Corners, State};
@@ -134,27 +166,18 @@ handle_call(get_corners, _From, State = #state{corners = Corners}) ->
 handle_call({set_corners,{{MinX,MaxX},{MinY,MaxY}}}, _From, State ) ->
   {reply, new_corners, State#state{corners = {{MinX,MaxX},{MinY,MaxY}}}};
 
-handle_call({add_snake,ID,Dir,H,T},_From, State = #state{last_snake = Last, snakes = Snakes}) ->
-  snake_node:start(ID,head,H,Dir),
-  snake_node:call(ID,{restore,T}),
-  {reply, added_snake, State#state{snakes = [[{ID,Dir},H | T]|Snakes]}};
-
-handle_call({add_snakes,ListOfSnakes}, _From, State = #state{last_snake = Last, snakes = Snakes}) ->
-  %each snake in the list is a list of locations when hd(S) is the head
-  Range = lists:seq(Last, Last + size(ListOfSnakes)),
-  NewSnakes = lists:map(
-    fun(S) ->
-     addSnakes(S)
-    end,
-    combine(Range,ListOfSnakes)
-  ),
-  {reply, added_snake, State#state{snakes = Snakes ++ NewSnakes}};
-
 
 
 %%%debug calls
+handle_call(get_state, _From, State ) ->
+  {reply,State, State};
+
 handle_call(get_snakes, _From, State = #state{snakes = Snakes}) ->
-  {reply,Snakes, State};
+  List = lists:map(
+    fun(X) -> call(X,get_snake) end,
+    Snakes
+  ),
+  {reply,List, State};
 
 handle_call(get_food, _From, State = #state{food = Snakes}) ->
   {reply,Snakes, State};
@@ -181,6 +204,21 @@ handle_cast({remove_food,Loc}, State = #state{food = Food, corners = Corners}) -
   NewFood = [X || X <- Food, X =/= Loc],
   F = spawnFood(Corners,NewFood),
   {noreply, State#state{food = [F | NewFood]}};
+
+handle_cast({remove_snake,SnakeID},State = #state{snakes = Snakes}) ->
+  {noreply, State#state{snakes = [S || S <- Snakes, S =/= SnakeID]}};
+
+handle_cast({add_snake,[{ID,Dir},H | T]},State = #state{last_snake = Last, id = Node, snakes = Snakes, corners = Corners}) ->
+  OOB = outOfBounds(H,Corners),
+  if
+    OOB  -> {noreply,State} ;
+    true ->
+      Name = ID,
+      %Name = list_to_atom(atom_to_list(Node) ++ "_snake" ++ integer_to_list(Last+1)),
+      {ok,_P} = snake_node:start(Name,head,H,Dir,self()),
+      snake_node:cast(Name,{restore,T}),
+      {noreply, State#state{snakes = [Name | Snakes], last_snake = Last + 1}}
+  end;
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -243,11 +281,11 @@ spawnSnake(I,L) -> spawnSnake(I,L,[]).
 spawnSnake(_I, [], Acc) -> lists:reverse(Acc);
 spawnSnake(I,[{ID, {Loc,Dir}} | T ], Acc) ->
   Name = list_to_atom(I ++"_snake" ++ integer_to_list(ID)),
-  snake_node:start(Name,head,Loc,Dir),
+  snake_node:start(Name,head,Loc,Dir,self()),
   spawnSnake(I,T, [Name | Acc]).
 
 spawnFood({{MinX,MaxX},{MinY,MaxY}},Unavailable) ->
-  L = {MinX + rand:uniform(MaxX-MinX),MinY + rand:uniform(MaxY-MinY)},
+  L = {MinX + 1 +  rand:uniform(MaxX-MinX-2),MinY +1+ rand:uniform(MaxY-MinY-2)},
   T = lists:member(L,Unavailable),
   if
     T -> spawnFood({{MinX,MaxX},{MinY,MaxY}},Unavailable);
@@ -297,16 +335,52 @@ addSnakes({ID,_LocationList = [H]}) -> %only head - random direction
 
 addSnakes({ID,_LocationList = [Head,Link | T]}) ->
   Name = list_to_atom("snake" ++ integer_to_list(ID)),
-  Dir = getDir(Head,Link),
+  Dir = calcDir(Head,Link),
   _s = snake_node:start(Name,head,Head,Dir),
   snake_node:call(Name, {restore,[Link | T]}),
   Name.
 
-getDir({X1,Y1},{X2,Y2}) when ((X1+1 =:= X2) and (Y1 =:= Y2))-> ?LEFT;
-getDir({X1,Y1},{X2,Y2}) when ((X1-1 =:= X2) and (Y1 =:=Y2))-> ?RIGHT;
-getDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1-1 =:=Y2))-> ?UP;
-getDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1+1 =:=Y2))-> ?DOWN.
+calcDir({X1,Y1},{X2,Y2}) when ((X1+1 =:= X2) and (Y1 =:= Y2))-> ?LEFT;
+calcDir({X1,Y1},{X2,Y2}) when ((X1-1 =:= X2) and (Y1 =:=Y2))-> ?RIGHT;
+calcDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1-1 =:=Y2))-> ?UP;
+calcDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1+1 =:=Y2))-> ?DOWN.
 
 combine([],[]) -> [];
 combine([H1 | T1],[H2 | T2]) ->
   [{H1,H2} | combine(T1,T2)].
+
+calcMove([ID,{X,Y},Dir],Food) ->
+  Dist = lists:map(
+    fun(F = {X2,Y2}) ->
+      D = math:sqrt(math:pow(X2-X,2) + math:pow(Y2-Y,2)),
+      {D,F}
+    end,
+    Food
+  ),
+  {D,Target} = hd(lists:keysort(1,Dist)),
+  NewDir = getDir({X,Y},Target),
+  if
+    D == 0 -> snake_node:cast(ID,grow), snake_worker:cast(self(),{remove_food,Target});
+    Dir =:= NewDir-> ok;
+    true ->
+      case snake_node:call(ID,{change_dir,NewDir}) of
+        {cd,NewDir} -> ok;
+        {forbidden_cd,NewDir} -> snake_node:call(ID,{change_dir,getDir(NewDir,{X,Y},Target)}), ok;
+        bad_direction -> ok
+      end
+  end.
+
+getDir({X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
+getDir({X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
+getDir({_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
+getDir({_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
+getDir(_,_) -> 100.
+
+getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood >= X-> ?RIGHT;
+getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood =< X-> ?LEFT;
+getDir(?DOWN,{X,_Y},{Xfood,_Yfood}) when Xfood >= X-> ?RIGHT;
+getDir(?DOWN,{X,_Y},{Xfood,_Yfood}) when Xfood =< X-> ?LEFT;
+getDir(?RIGHT,{_X,Y},{_Xfood,Yfood}) when Yfood >= Y-> ?UP;
+getDir(?RIGHT,{_X,Y},{_Xfood,Yfood}) when Yfood =< Y-> ?DOWN;
+getDir(?LEFT,{_X,Y},{_Xfood,Yfood}) when Yfood >= Y-> ?UP;
+getDir(?LEFT,{_X,Y},{_Xfood,Yfood}) when Yfood =< Y-> ?DOWN.

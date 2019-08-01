@@ -16,7 +16,7 @@
 %-compile(export_all).
 
 %% API
--export([start_link/5, start_link/4, start_link/2, start_link/3, start/5, start/4, call/2,cast/2, stop/2]).
+-export([start_link/5, start_link/4, start_link/2, start_link/3, start/5, start/6, call/2,cast/2, stop/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -36,7 +36,7 @@
     location,
     move = {},
     grow = false,
-    target
+    worker
     }).
 
 %%%===================================================================
@@ -51,11 +51,11 @@ stop(ID, Reason) ->
 cast(ID, Msg) ->
   gen_server:cast(ID, Msg).
 
-start(ID, Role, Location, Direction) ->
-  gen_server:start({local, ID}, ?MODULE, [ID, Role,  Location, Direction], []).
+start(ID, Role, Location, Direction, Worker) ->
+  gen_server:start({local, ID}, ?MODULE, [ID, Role,  Location, Direction, Worker], []).
 
-start(ID, Role,  Location, Direction, Next) ->
-  gen_server:start({local, ID}, ?MODULE, [ID, Role,  Location, Direction,Next], []).
+start(ID, Role,  Location, Direction, Worker, Next) ->
+  gen_server:start({local, ID}, ?MODULE, [ID, Role,  Location, Direction, Worker, Next], []).
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -96,15 +96,19 @@ start_link(link, Location,Next) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([ID, head, Location, Direction]) ->
+init([ID, head, Location, Direction, Worker]) ->
+  process_flag(trap_exit,true),
   Move = nextMove(Direction,Location),
-  {ok, #state{id = ID, role = head, direction = Direction, location = Location, move = Move}};
-init([ID, head, Location, Direction, Next]) ->
+  {ok, #state{id = {ID,node()}, role = head, direction = Direction, location = Location, move = Move,worker = Worker}};
+init([ID, head, Location, Direction, Worker, Next]) ->
+  process_flag(trap_exit,true),
   Move = nextMove(Direction,Location),
-  {ok, #state{id = ID, role = head, direction = Direction, next = Next, location = Location, move = Move}};
+  {ok, #state{id = {ID,node()}, role = head, direction = Direction, next = Next, location = Location, move = Move, worker = Worker}};
 init([link, Location]) ->
+  process_flag(trap_exit,true),
   {ok, #state{role = link, location = Location}};
 init([link, Location, Next]) ->
+  process_flag(trap_exit,true),
   {ok, #state{role = link, location = Location, next = Next}}.
 
 
@@ -219,18 +223,6 @@ handle_call({get_node,_Location}, _From, State = #state{next = Next}) ->
   Reply = call(Next,{get_node,_Location}),
   {reply, Reply, State};
 
-%collision calls
-handle_call({collision,_Dir}, _From, State = #state{next = none}) ->
-  {stop, head_collision, State};
-
-handle_call({collision,_Dir}, _From, State = #state{role = head, next = Next}) ->
-  stop(Next,head_collision),
-  {stop, head_collision, State};
-
-
-handle_call({collision,Dir}, _From, State = #state{role = link, next = Next}) ->
-  call(Next,{promote,Dir}),
-  {stop, {link_collision,promoted,Next}, State};
 
 handle_call(get_direction, _From, State = #state{direction = Dir}) ->
   {reply, Dir, State};
@@ -238,15 +230,21 @@ handle_call(get_direction, _From, State = #state{direction = Dir}) ->
 
 handle_call({set_next,Next}, _From, State = #state{}) ->
   {reply, ok, State#state{next = Next}};
-%restore calls
-handle_call({restore,[N]}, _From, State) ->
-  {ok,Next} = start_link(link, N),
-  {reply, ok, State#state{next = Next}};
 
+
+
+%restore calls
+handle_call({restore,[]}, _From, State) ->
+  {reply, ok, State#state{next = none}};
 handle_call({restore,[N|T]}, _From, State) ->
   {ok,Next} = start_link(link, N),
   call(Next,{restore,T}),
   {reply, ok, State#state{next = Next}};
+
+handle_call(get_head, _From, State = #state{direction = D,location = L}) ->
+  {reply, [L,D], State};
+
+
 
 %%debug calls
 handle_call(get_state, _From, State) ->
@@ -283,6 +281,44 @@ handle_cast(grow, State = #state{next = Next}) ->
   cast(Next,grow),
   {noreply,  State#state{ grow = false}};
 
+handle_cast({restore,[]}, State) ->
+  {noreply, State#state{next = none}};
+
+handle_cast({restore,[N|T]}, State) ->
+  {ok,Next} = start_link(link, N),
+  cast(Next,{restore,T}),
+  {noreply,State#state{next = Next}};
+
+handle_cast({cut_node_check,_Loc},State = #state{role = head, next = none}) ->
+  {noreply,State};
+
+handle_cast({cut_node_check,Loc},State = #state{role = head, next = Next}) ->
+  cast(Next,{cut_node_check,Loc}),
+  {noreply,State};
+
+handle_cast({cut_node_check,Loc},State = #state{next = none, location = Loc}) ->
+  {stop,cut,State};
+
+handle_cast({cut_node_check,_Loc},State = #state{next = none}) ->
+  {noreply,State};
+
+handle_cast({cut_node_check,Loc},State = #state{next = Next, location = Loc}) ->
+  cast(Next,{cut_node,Loc}),
+  {noreply, State};
+
+handle_cast({cut_node_check,Loc},State = #state{next = Next}) ->
+  cast(Next,{cut_node_check,Loc}),
+  {noreply, State};
+
+handle_cast({cut_node,Loc},State = #state{next = none, location = Loc}) ->
+  {stop,cut,State};
+
+handle_cast({cut_node,Loc},State = #state{next = none}) ->
+  {stop,{cut_node,Loc},State};
+
+handle_cast({cut_node,Loc},State = #state{next = Next}) ->
+  cast(Next,{cut_node,Loc}),
+  {noreply, State};
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -301,6 +337,25 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+handle_info({'EXIT',_From,colission}, State) ->
+  {stop, colission, State};
+
+handle_info({'EXIT',From,cut},State = #state{next = From}) ->
+  {noreply,State#state{next = none}};
+
+handle_info({'EXIT',_From,cut}, State) ->
+  {noreply, State};
+
+handle_info({'EXIT',From,{cut_node,Loc}},State = #state{next = From, location = Loc}) ->
+  {stop,cut, State};
+
+handle_info({'EXIT',From,{cut_node,Loc}},State = #state{next = From}) ->
+  {stop,{cut_node,Loc}, State};
+
+handle_info({'EXIT',From, _},State = #state{next = From}) ->
+  {stop,next_died, State};
+
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -318,15 +373,20 @@ handle_info(_Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
 
-terminate(head_collision, #state{next = none}) ->
-  head_collision;
+terminate(R, #state{role = head, next = none,worker = W,id = ID}) ->
+  cast(W,{remove_snake,ID}),
+  R;
 
-terminate(head_collision, #state{next = Next}) ->
-  stop(Next,head_collision),
-  head_collision;
+terminate(R, #state{role = head, worker = W,id = ID}) ->
+  cast(W,{remove_snake,ID}),
+  R;
 
-terminate(_Reason, _State) ->
-  unknown_reason_terminate.
+
+terminate({cut_node,Loc}, #state{location = Loc}) ->
+  cut;
+
+terminate(Reason, _State) ->
+  Reason.
 
 %%--------------------------------------------------------------------
 %% @private
