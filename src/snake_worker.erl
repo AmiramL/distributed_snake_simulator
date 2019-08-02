@@ -119,7 +119,7 @@ init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,FoodCount,Manager]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 
-handle_call(get_data, _From, State = #state{snakes = Snakes, food = Food, corners = Corners, manager = Manager}) ->
+handle_call(get_data, _From, State = #state{snakes = Snakes, food = Food}) ->
   Reply_tmp = lists:map(
     fun(S) ->
        B = whereis(S),
@@ -342,19 +342,6 @@ generateSnake(SizeX,SizeY) ->
   Ypos = rand:uniform(SizeY),
   {Xpos,Ypos}.
 
-%%add snakes in case of fall
-addSnakes({ID,_LocationList = [H]}) -> %only head - random direction
-  Name = list_to_atom("snake" ++ integer_to_list(ID)),
-  Dir = 313 + rand:uniform(4), %result between 314 and 317
-  snake_node:start(Name,head,H,Dir),
-  Name;
-
-addSnakes({ID,_LocationList = [Head,Link | T]}) ->
-  Name = list_to_atom("snake" ++ integer_to_list(ID)),
-  Dir = calcDir(Head,Link),
-  _s = snake_node:start(Name,head,Head,Dir),
-  snake_node:call(Name, {restore,[Link | T]}),
-  Name.
 
 calcDir({X1,Y1},{X2,Y2}) when ((X1+1 =:= X2) and (Y1 =:= Y2))-> ?LEFT;
 calcDir({X1,Y1},{X2,Y2}) when ((X1-1 =:= X2) and (Y1 =:=Y2))-> ?RIGHT;
