@@ -122,16 +122,29 @@ init([MinX,MaxX,MinY,MaxY]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call(timestep, _From, State = #state{worker_node = Nodes}) ->
-  Food = lists:flatten(lists:map(fun(W) -> snake_worker:call(W, get_food) end ,Nodes)),
-  SnakeList = lists:foldr(
-    fun(W, Acc) ->
-      {timestep, S} = snake_worker:call(W,{timestep,Food}),
-      S ++ Acc
-    end
-    ,[]
-    ,Nodes),
+  [Food,SnakeList] = lists:foldr(
+    fun(W,[F,S]) ->
+      [{snakes,SnakesNode},{food,FoodNode}] = snake_worker:call(W, get_data),
+      [F++FoodNode,S++SnakesNode]
+    end,
+    [[],[]],
+    Nodes
+  ),
   detectColissions(SnakeList),
-  {reply, SnakeList , State};
+  %Food = lists:flatten(lists:map(fun(W) -> snake_worker:call(W, get_food) end ,Nodes)),
+  %SnakeList = lists:foldr(
+  %  fun(W, Acc) ->
+  %    {timestep, S} = snake_worker:call(W,{timestep,Food}),
+  %    S ++ Acc
+  %  end
+  %  ,[]
+  %  ,Nodes),
+  %detectColissions(SnakeList),
+  lists:foreach(
+    fun(W) -> {timestep, _S} = snake_worker:call(W,{timestep,Food}) end,
+    Nodes
+  ),
+  {reply, {SnakeList,Food} , State};
 
 handle_call(get_data, _From, State = #state{worker_node = Nodes}) ->
   {reply,
@@ -146,13 +159,17 @@ handle_call(get_data, _From, State = #state{worker_node = Nodes}) ->
 handle_call(worker, _From, State = #state{worker_node = Node}) ->
   {reply, Node, State};
 
-handle_call({move_snake,[{ID,Dir},H | T]}, _From, State) ->
-  Node = findNode(H),
-  snake_worker:call(Node,{add_snake,ID,Dir,H,T}),
+%handle_call({move_snake,[{ID,Dir},H | T]}, _From, State) ->
+handle_call({move_snake,[{{ID,_N},Dir},H | T]}, _From, State = #state{worker_node = Nodes}) ->
+  Node = findNode(H,Nodes),
+  snake_worker:cast(Node,{add_snake,ID,Dir,H,T}),
   {reply, ok, State};
 
 handle_call(get_corners, _From, State = #state{corners = Corners}) ->
   {reply, Corners, State};
+
+handle_call(get_state, _From, State) ->
+  {reply, State, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -241,7 +258,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-headColissions([], Acc) ->Acc;
+headColissions([], Acc) -> Acc;
+headColissions([{}], Acc) -> Acc;
+headColissions([{}|T], Acc) ->
+  headColissions(T,Acc);
 headColissions([{{ID,_Dir},H}|T], Acc) ->
   B = lists:keymember(H,2,T),
   if
@@ -258,13 +278,18 @@ detectColissions(SnakeList) ->
     fun(S) -> stop(S, colission) end,
     H
   ),
-  HeadList = lists:map(
+  HeadList_tmp = lists:map(
     fun(S) ->
-      [{ID,_Dir},Head] = lists:sublist(S,2),
-      {ID,Head}
+      case S of
+        [] -> [];
+        _ ->
+          [{ID,_Dir},Head] = lists:sublist(S,2),
+          {ID,Head}
+      end
     end
     , SnakeList
   ),
+  HeadList = [X || X <- HeadList_tmp, X =/=[]],
   lists:foreach(fun(X) -> castToAll(X,HeadList) end, HeadList),
   H.
 
@@ -277,33 +302,37 @@ castToAll({ID,Head},[{ID2,_Head2} | T]) ->
 
 
 
-findNode(H) ->
-  C = snake_worker:call(workerA,get_corners),
+findNode(H,Nodes) ->
+  N = lists:keyfind(workerA,1,Nodes),
+  C = snake_worker:call(N,get_corners),
   OOB = outOfBounds(H,C),
   if
-    OOB -> findNode(H,1);
-    true -> workerA
+    OOB -> findNode(H,1,Nodes);
+    true -> N
   end.
-findNode(H,1) ->
-  C = snake_worker:call(workerB,get_corners),
+findNode(H,1,Nodes) ->
+  N = lists:keyfind(workerB,1,Nodes),
+  C = snake_worker:call(N,get_corners),
   OOB = outOfBounds(H,C),
   if
-    OOB -> findNode(H,2);
-    true -> workerB
+    OOB -> findNode(H,2,Nodes);
+    true -> N
   end;
-findNode(H,2) ->
-  C = snake_worker:call(workerC,get_corners),
+findNode(H,2,Nodes) ->
+  N = lists:keyfind(workerC,1,Nodes),
+  C = snake_worker:call(N,get_corners),
   OOB = outOfBounds(H,C),
   if
-    OOB -> findNode(H,3);
-    true -> workerC
+    OOB -> findNode(H,3,Nodes);
+    true -> N
   end;
-findNode(H,3) ->
-  C = snake_worker:call(workerD,get_corners),
+findNode(H,3,Nodes) ->
+  N = lists:keyfind(workerD,1,Nodes),
+  C = snake_worker:call(N,get_corners),
   OOB = outOfBounds(H,C),
   if
     OOB -> something_is_wrong;
-    true -> workerD
+    true -> N
   end.
 
 

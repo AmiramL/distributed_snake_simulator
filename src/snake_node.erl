@@ -373,14 +373,10 @@ handle_info(_Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
 
-terminate(R, #state{role = head, next = none,worker = W,id = ID}) ->
-  cast(W,{remove_snake,ID}),
-  R;
 
-terminate(R, #state{role = head, worker = W,id = ID}) ->
+terminate(colission, #state{role = head,worker = W,id = ID}) ->
   cast(W,{remove_snake,ID}),
-  R;
-
+  colission;
 
 terminate({cut_node,Loc}, #state{location = Loc}) ->
   cut;

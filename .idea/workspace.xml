@@ -2,14 +2,11 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="d79fa2ca-2d2a-4aec-8c71-887aee2f0927" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/dictionaries/epsilon.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/snake_local.beam" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_local.beam" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/snake_local.erl" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_local.erl" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/snake_node.beam" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_node.beam" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/snake_node.erl" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_node.erl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/snake_worker.beam" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_worker.beam" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/snake_worker.beam" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/snake_worker.erl" beforeDir="false" afterPath="$PROJECT_DIR$/src/snake_worker.erl" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/out/" />
@@ -30,8 +27,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/src/snake_node.erl">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="503">
-              <caret line="354" lean-forward="true" selection-start-line="354" selection-end-line="354" />
+            <state relative-caret-position="204">
+              <caret line="378" column="12" lean-forward="true" selection-start-line="378" selection-start-column="12" selection-end-line="378" selection-end-column="12" />
             </state>
           </provider>
         </entry>
@@ -39,8 +36,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/src/snake_worker.erl">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="53">
-              <caret line="210" column="25" selection-start-line="210" selection-start-column="25" selection-end-line="210" selection-end-column="25" />
+            <state relative-caret-position="317">
+              <caret line="132" column="42" selection-start-line="132" selection-start-column="42" selection-end-line="132" selection-end-column="42" />
             </state>
           </provider>
         </entry>
@@ -48,8 +45,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/src/snake_local.erl">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="119">
-              <caret line="127" column="9" selection-start-line="127" selection-start-column="9" selection-end-line="127" selection-end-column="9" />
+            <state relative-caret-position="79">
+              <caret line="260" column="13" selection-start-line="260" selection-start-column="4" selection-end-line="260" selection-end-column="13" />
             </state>
           </provider>
         </entry>
@@ -75,36 +72,36 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>process</find>
-      <find>}.</find>
-      <find>process_f</find>
-      <find>snakes = S</find>
-      <find>add</find>
-      <find>flag</find>
-      <find>restore</find>
-      <find>OOB</find>
-      <find>move</find>
-      <find>get_f</find>
-      <find>getDir</find>
-      <find>grow</find>
-      <find>moved</find>
-      <find>move_snake</find>
       <find>get_cor</find>
       <find>spawnSnake</find>
       <find>res</find>
-      <find>remove</find>
       <find>start_l</find>
       <find>remove_food</find>
       <find>stop</find>
       <find>stop,cut</find>
       <find>collision</find>
       <find>id</find>
-      <find>id</find>
       <find>manager</find>
       <find>worker_node</find>
       <find>get_snake</find>
       <find>timeste</find>
+      <find>casr</find>
+      <find>add_S</find>
+      <find>cut_node_c</find>
+      <find>move_s</find>
+      <find>find</find>
+      <find>move</find>
+      <find>remove_s</find>
       <find>add_snake</find>
+      <find>move_snak</find>
+      <find>add_s</find>
+      <find>calcM</find>
+      <find>snake_node</find>
+      <find>headColissions</find>
+      <find>colission</find>
+      <find>get_snakes</find>
+      <find>remove_snake</find>
+      <find>remove</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -115,8 +112,8 @@
       <list>
         <option value="$PROJECT_DIR$/src/snake_link.erl" />
         <option value="$PROJECT_DIR$/include/snake.hrl" />
-        <option value="$PROJECT_DIR$/src/snake_node.erl" />
         <option value="$PROJECT_DIR$/src/snake_local.erl" />
+        <option value="$PROJECT_DIR$/src/snake_node.erl" />
         <option value="$PROJECT_DIR$/src/snake_worker.erl" />
       </list>
     </option>
@@ -132,6 +129,7 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
+      <pane id="PackagesPane" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -154,7 +152,6 @@
         </subPane>
       </pane>
       <pane id="Scope" />
-      <pane id="PackagesPane" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -191,8 +188,9 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="67" y="25" width="1853" height="1055" extended-state="6" />
+    <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.14277808" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.1444383" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Image Layers" order="2" />
       <window_info id="Designer" order="3" />
@@ -206,7 +204,7 @@
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="bottom" id="TODO" order="6" />
-      <window_info active="true" anchor="bottom" id="Terminal" order="7" sideWeight="0.4991699" visible="true" weight="0.5507559" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="7" sideWeight="0.4991699" visible="true" weight="0.3509719" />
       <window_info anchor="bottom" id="Event Log" order="8" sideWeight="0.5008301" side_tool="true" weight="0.3563715" />
       <window_info anchor="bottom" id="Version Control" order="9" />
       <window_info anchor="right" id="Palette" order="0" />
@@ -258,24 +256,24 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/snake_node.erl">
+    <entry file="file://$PROJECT_DIR$/src/snake_local.erl">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="503">
-          <caret line="354" lean-forward="true" selection-start-line="354" selection-end-line="354" />
+        <state relative-caret-position="79">
+          <caret line="260" column="13" selection-start-line="260" selection-start-column="4" selection-end-line="260" selection-end-column="13" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/snake_local.erl">
+    <entry file="file://$PROJECT_DIR$/src/snake_node.erl">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="119">
-          <caret line="127" column="9" selection-start-line="127" selection-start-column="9" selection-end-line="127" selection-end-column="9" />
+        <state relative-caret-position="204">
+          <caret line="378" column="12" lean-forward="true" selection-start-line="378" selection-start-column="12" selection-end-line="378" selection-end-column="12" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/src/snake_worker.erl">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="53">
-          <caret line="210" column="25" selection-start-line="210" selection-start-column="25" selection-end-line="210" selection-end-column="25" />
+        <state relative-caret-position="317">
+          <caret line="132" column="42" selection-start-line="132" selection-start-column="42" selection-end-line="132" selection-end-column="42" />
         </state>
       </provider>
     </entry>

@@ -120,41 +120,52 @@ init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,FoodCount,Manager]) ->
 
 
 handle_call(get_data, _From, State = #state{snakes = Snakes, food = Food, corners = Corners, manager = Manager}) ->
-  Reply = lists:map(
+  Reply_tmp = lists:map(
     fun(S) ->
-      snake_node:call(S,get_snake)
-    end,
-    Snakes
-  ),%% TODO need to remove moved, snakes from state
-  {reply, [{snakes,Reply},{food,Food}], State};
-
-handle_call({timestep,Food}, _From, State = #state{id = _ID,snakes = Snakes, corners = Corners, manager = Manager}) ->
-  ListOut = lists:map(
-    fun(X) ->
-      call(X,get_snake)
+       B = whereis(S),
+      case B of
+        undefined -> [];
+        _ -> snake_node:call(S,get_snake)
+      end
     end,
     Snakes
   ),
+  Reply = [X || X <- Reply_tmp, X =/= []],
+  {reply, [{snakes,Reply},{food,Food}], State};
+
+handle_call({timestep,Food}, _From, State = #state{id = _ID,snakes = Snakes, corners = Corners, manager = Manager}) ->
+  %ListOut = lists:map(
+   % fun(X) ->
+   %   call(X,get_snake)
+   % end,
+   % Snakes
+  %),
 
   lists:foreach(
     fun(S) ->
-      List = [S | snake_node:call(S,get_head)],
-      calcMove(List,Food),
-      snake_node:call(S,move),
+      B = whereis(S),
+      case B of
+        undefined -> ok;
+        _ ->
+          List = [S | snake_node:call(S,get_head)],
+          calcMove(List,Food),
+          snake_node:call(S,move),
 
-      Snake = snake_node:call(S,get_snake),
-      OOB = outOfBounds(lists:nth(2,Snake),Corners),
-      if
-        OOB ->
-          snake_node:stop(S, moved_to_a_different_node),
-          snake_local:cast(Manager, {move_snake,Snake});
-        true -> ok
+          Snake = snake_node:call(S,get_snake),
+          OOB = outOfBounds(lists:nth(2,Snake),Corners),
+          if
+            OOB ->
+              snake_node:stop(S, moved_to_a_different_node),
+              snake_worker:cast(self(),{remove_snake,S}),
+              snake_local:cast(Manager, {move_snake,Snake});
+            true -> ok
+          end
       end
     end,
     Snakes),
 
 
-  {reply, {timestep,ListOut}, State};
+  {reply, {timestep,self()}, State};
 
 
 
@@ -174,7 +185,12 @@ handle_call(get_state, _From, State ) ->
 
 handle_call(get_snakes, _From, State = #state{snakes = Snakes}) ->
   List = lists:map(
-    fun(X) -> call(X,get_snake) end,
+    fun(X) ->
+      case whereis(X) of
+        undefined -> [];
+        _ -> call(X,get_snake)
+      end
+    end,
     Snakes
   ),
   {reply,List, State};
@@ -208,14 +224,14 @@ handle_cast({remove_food,Loc}, State = #state{food = Food, corners = Corners}) -
 handle_cast({remove_snake,SnakeID},State = #state{snakes = Snakes}) ->
   {noreply, State#state{snakes = [S || S <- Snakes, S =/= SnakeID]}};
 
-handle_cast({add_snake,[{ID,Dir},H | T]},State = #state{last_snake = Last, id = Node, snakes = Snakes, corners = Corners}) ->
+handle_cast({add_snake,[{{ID,_},Dir},H |T]},State = #state{last_snake = Last, id = Node, snakes = Snakes, corners = Corners}) ->
   OOB = outOfBounds(H,Corners),
   if
     OOB  -> {noreply,State} ;
     true ->
       Name = ID,
       %Name = list_to_atom(atom_to_list(Node) ++ "_snake" ++ integer_to_list(Last+1)),
-      {ok,_P} = snake_node:start(Name,head,H,Dir,self()),
+      {ok,_P} = snake_node:start(Name,head,H,Dir,Node),
       snake_node:cast(Name,{restore,T}),
       {noreply, State#state{snakes = [Name | Snakes], last_snake = Last + 1}}
   end;
@@ -369,6 +385,8 @@ calcMove([ID,{X,Y},Dir],Food) ->
         bad_direction -> ok
       end
   end.
+
+
 
 getDir({X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
 getDir({X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
