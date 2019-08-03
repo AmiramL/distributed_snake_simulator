@@ -18,7 +18,14 @@
 -define(LEFT,314).
 -define(SPACEBAR,32).
 
--define(TIME_INTERVAL,1000).
+-define(TIME_INTERVAL,200).
+
+-define(ServerA,'a@127.0.0.1').
+-define(ServerB,'a@127.0.0.1').
+-define(ServerC,'a@127.0.0.1').
+-define(ServerD,'a@127.0.0.1').
+
+
 
 -record(snake, {
   id = [],

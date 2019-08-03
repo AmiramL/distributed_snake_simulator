@@ -16,7 +16,7 @@
 -compile(export_all).
 
 %% API
--export([start_link/6,stop/2,call/2,cast/2,start/8]).
+-export([start_link/6,stop/2,call/2,cast/2,start/8,start/7]).
 
 
 %% gen_server callbacks
@@ -60,8 +60,24 @@ start({Node,ID},MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager) ->
     end
   );
 
+
 start(ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager) ->
   gen_server:start({local, ID}, ?MODULE, [ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,Food, Manager], []).
+
+start({Node,ID},MinX,MaxX,MinY,MaxY,{Snakes,Food}, Manager) ->
+  spawn(Node,
+    fun() ->
+      spawn(Node, ?MODULE, start, [ID,MinX,MaxX,MinY,MaxY,{Snakes,Food}, Manager])
+    end
+  );
+
+start(ID,MinX,MaxX,MinY,MaxY,{Snakes,Food}, Manager) ->
+  {ok, _Pid} = gen_server:start({local, ID}, ?MODULE, [ID,MinX,MaxX,MinY,MaxY,{Food}, Manager], []),
+  lists:foreach(
+    fun(S) -> cast(Manager,{move_snake,S}) end,
+    Snakes
+  ).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -92,6 +108,11 @@ start_link(ID,MinX,MaxX,MinY,MaxY,NumOfSnakes) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
+
+init([ID,MinX,MaxX,MinY,MaxY,{Food},Manager]) ->
+
+  {ok, #state{id = ID, last_snake = 0 , snakes = [], corners = {{MinX,MaxX},{MinY,MaxY}},food = Food,manager = Manager}};
+
 init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,FoodCount,Manager]) ->
   SizeX = MaxX - MinX - 2,
   SizeY = MaxY - MinY - 2,
@@ -174,7 +195,7 @@ handle_call({timestep,Food}, _From, State = #state{id = _ID,snakes = Snakes, cor
 handle_call(get_corners, _From, State = #state{corners = Corners}) ->
   {reply, Corners, State};
 
-handle_call({set_corners,{{MinX,MaxX},{MinY,MaxY}}}, _From, State ) ->
+handle_call({set_corners,{MinX,MaxX,MinY,MaxY}}, _From, State ) ->
   {reply, new_corners, State#state{corners = {{MinX,MaxX},{MinY,MaxY}}}};
 
 
@@ -361,7 +382,8 @@ calcMove([ID,{X,Y},Dir],Food) ->
     Food
   ),
   {D,Target} = hd(lists:keysort(1,Dist)),
-  NewDir = getDir({X,Y},Target),
+  R = rand:uniform(4),
+  NewDir = getDir(R,{X,Y},Target),
   if
     D == 0 -> snake_node:cast(ID,grow), snake_worker:cast(self(),{remove_food,Target});
     Dir =:= NewDir-> ok;
@@ -375,11 +397,31 @@ calcMove([ID,{X,Y},Dir],Food) ->
 
 
 
-getDir({X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
-getDir({X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
-getDir({_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
-getDir({_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
-getDir(_,_) -> 100.
+getDir(1,{X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
+getDir(1,{X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
+getDir(1,{_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
+getDir(1,{_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
+getDir(1,_,_) -> 100;
+
+
+getDir(2,{_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
+getDir(2,{_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
+getDir(2,{X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
+getDir(2,{X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
+getDir(2,_,_) -> 100;
+
+getDir(3,{X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
+getDir(3,{_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
+getDir(3,{X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
+getDir(3,{_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
+getDir(3,_,_) -> 100;
+
+getDir(4,{_X,Y},{_Xfood,Yfood}) when Yfood < Y-> ?DOWN;
+getDir(4,{X,_Y},{Xfood,_Yfood}) when Xfood < X-> ?LEFT;
+getDir(4,{_X,Y},{_Xfood,Yfood}) when Yfood > Y-> ?UP;
+getDir(4,{X,_Y},{Xfood,_Yfood}) when Xfood > X-> ?RIGHT;
+getDir(4,_,_) -> 100;
+
 
 getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood >= X-> ?RIGHT;
 getDir(?UP,{X,_Y},{Xfood,_Yfood}) when Xfood =< X-> ?LEFT;

@@ -38,14 +38,20 @@
 %%%===================================================================
 
 start_remote(MaxX,MaxY,NumOfSnakes,FoodCount,NodeA,NodeB,NodeC,NodeD) ->
+  BU_table = ets:new(backUp,[set,public,named_table]),
   X = MaxX div 2,
   Y = MaxY div 2,
   Food = FoodCount div 4,
-  {ok,_Manager} = gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY, [{workerA,NodeA},{workerB,NodeB},{workerC,NodeC},{workerD,NodeD}]], []),
+  {ok,_Manager} = gen_server:start({local,local_game}, ?MODULE, [0,MaxX,0,MaxY, [{workerA,NodeA},{workerB,NodeB},{workerC,NodeC},{workerD,NodeD}],BU_table], []),
   snake_worker:start({NodeA,workerA}, 0,X,0,Y,NumOfSnakes,Food,{local_game, node()}),
+  ets:insert(BU_table,{{workerA,corners},{0,X,0,Y}}),
   snake_worker:start({NodeB,workerB}, X+1,MaxX,0,Y,NumOfSnakes,Food,{local_game, node()}),
+  ets:insert(BU_table,{{workerB,corners},{X+1,MaxX,0,Y}}),
   snake_worker:start({NodeC,workerC}, 0,X,Y+1,MaxY,NumOfSnakes,Food,{local_game, node()}),
-  snake_worker:start({NodeD,workerD}, X+1,MaxX,Y+1,MaxY,NumOfSnakes,Food,{local_game, node()}).
+  ets:insert(BU_table,{{workerC,corners},{0,X,Y+1,MaxY}}),
+  snake_worker:start({NodeD,workerD}, X+1,MaxX,Y+1,MaxY,NumOfSnakes,Food,{local_game, node()}),
+  ets:insert(BU_table,{{workerD,corners},{X+1,MaxX,Y+1,MaxY}}),
+  BU_table.
 
 start(MaxX,MaxY,NumOfSnakes,FoodCount) ->
   X = MaxX div 2,
@@ -100,6 +106,10 @@ start_link() ->
 init([MinX,MaxX,MinY,MaxY,Nodes]) ->
   process_flag(trap_exit,true),
   {ok, #state{game_state = get_data,worker_node = Nodes, corners = {{MinX,MaxX},{MinY,MaxY}}}};
+init([MinX,MaxX,MinY,MaxY,Nodes,BU]) ->
+  put(backup,BU),
+  process_flag(trap_exit,true),
+  {ok, #state{game_state = get_data,worker_node = Nodes, corners = {{MinX,MaxX},{MinY,MaxY}}}};
 init([MinX,MaxX,MinY,MaxY]) ->
   process_flag(trap_exit,true),
   Nodes = [workerA,workerB,workerC,workerD],
@@ -122,29 +132,26 @@ init([MinX,MaxX,MinY,MaxY]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call(timestep, _From, State = #state{worker_node = Nodes}) ->
+  DeadNodes = checkNodes(Nodes,[]),
+  case DeadNodes of
+    [] -> NewNodes = Nodes;
+    _ -> NewNodes = restoreData(DeadNodes,Nodes)
+  end,
   [Food,SnakeList] = lists:foldr(
-    fun(W,[F,S]) ->
+    fun(W = {Worker,_},[F,S]) ->
       [{snakes,SnakesNode},{food,FoodNode}] = snake_worker:call(W, get_data),
+      ets:insert(backUp,{Worker,SnakesNode,FoodNode}),
       [F++FoodNode,S++SnakesNode]
     end,
     [[],[]],
-    Nodes
+    NewNodes
   ),
   detectColissions(SnakeList),
-  %Food = lists:flatten(lists:map(fun(W) -> snake_worker:call(W, get_food) end ,Nodes)),
-  %SnakeList = lists:foldr(
-  %  fun(W, Acc) ->
-  %    {timestep, S} = snake_worker:call(W,{timestep,Food}),
-  %    S ++ Acc
-  %  end
-  %  ,[]
-  %  ,Nodes),
-  %detectColissions(SnakeList),
   lists:foreach(
     fun(W) -> {timestep, _S} = snake_worker:call(W,{timestep,Food}) end,
-    Nodes
+    NewNodes
   ),
-  {reply, {SnakeList,Food} , State};
+  {reply, {SnakeList,Food} , State#state{worker_node = NewNodes}};
 
 handle_call(get_data, _From, State = #state{worker_node = Nodes}) ->
   {reply,
@@ -170,6 +177,9 @@ handle_call(get_corners, _From, State = #state{corners = Corners}) ->
 
 handle_call(get_state, _From, State) ->
   {reply, State, State};
+
+handle_call(get_bu, _From, State) ->
+  {reply, get(backup), State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -365,7 +375,34 @@ generateFood(SizeX,SizeY) ->
 outOfBounds({X,Y}, {{MinX,MaxX},{MinY,MaxY}}) ->
   (X > MaxX) or (X < MinX) or ( Y > MaxY ) or  (Y < MinY).
 
+checkNodes([], Acc) -> Acc;
+checkNodes([{NodeName,Node} | T], Acc) ->
+  B = (lists:member(Node,nodes(connected))) and (rpc:call(Node, erlang, whereis, [NodeName]) =/= undefined),
+  if
+    B -> checkNodes(T,Acc);
+    true -> checkNodes(T,[NodeName | Acc])
+  end.
 
 
+restoreData(DeadNodes,Nodes) ->
+  Ret = [{Name,Node} || {Name,Node} <- Nodes, not lists:member(Name,DeadNodes)],
 
+  Restored = lists:map(
+    fun(N) ->
+      restoreNode(N,Ret)
+    end,
+    DeadNodes
+  ),
+  Restored ++ Ret.
 
+restoreNode(W,Nodes) ->
+  I = rand:uniform(sizeList(Nodes,0)),
+  {_,Node} = lists:nth(I,Nodes),
+  [{_,{MinX,MaxX,MinY,MaxY}}] = ets:lookup(get(backup),{W,corners}),
+  [{W,Snakes,Food}] =  ets:lookup(backUp,W),
+  snake_worker:start({Node,W},MinX,MaxX,MinY,MaxY,{Snakes,Food},{local_game, node()}),
+  {W,Node}.
+% snake_worker:start({NodeA,workerA}, 0,X,0,Y,NumOfSnakes,Food,{local_game, node()}),
+
+sizeList([], A) -> A;
+sizeList([_H | T], A) -> sizeList(T,A + 1).
