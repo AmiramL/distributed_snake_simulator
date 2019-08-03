@@ -31,7 +31,6 @@
 
 -define(SERVER, ?MODULE).
 
--record(settings, {show_grid = true, size = {100,100}}).
 
 -record(state,
   {
@@ -41,7 +40,6 @@
     frame,
 		canvas,
     size,
-		settings = #settings{},
 		block_size = {20,20},
 		move_timer = ?TIME_INTERVAL,
 		node
@@ -68,25 +66,59 @@ start_link() ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
+%%% Pause
+handle_event(#wx{event = #wxKey{type = key_down, keyCode = 32}},
+	     State = #state{pause = false}) ->
+  {noreply, State#state{pause = true}};
+
+handle_event(#wx{event = #wxKey{type = key_down, keyCode = 32}},
+    State = #state{pause = true}) ->
+  erlang:send_after(?TIME_INTERVAL, self(), update),
+  {noreply, State#state{pause = false}};
+
+handle_event(#wx{obj = _Frame, event = #wxCommand{type = command_menu_selected},
+		 id = Id}, State = #state{manager = Manager}) ->
+    %%io:format("Command menu ID: ~p\n", [Id]),
+    case Id of
+      ?wxID_NEW ->
+
+        snake_local:stop(local_game,new),
+        receive
+          after 100 -> ok
+        end,
+        _ = snake_local:start_remote(100,100,2,20,?ServerA,?ServerB,?ServerC,?ServerD),
+        receive
+        after 100 -> ok
+        end,
+        draw(State),
+        erlang:send_after(?TIME_INTERVAL, self(), update),
+        {noreply, State#state{pause = true}};
+    	?wxID_ADD ->
+        snake_local:cast(Manager,new_snake),
+        {noreply, State};
+    	?wxID_EXIT ->
+        snake_local:stop(local_game,new),
+	      {stop, shutdown, State};
+	    _ ->
+	      {noreply, State}
+    end;
+
+
 
 handle_event(_Event,State) ->
   {noreply, State}.
 
 
 init([]) ->
-  Wx = wx:new(),
-  Frame = wxFrame:new(wx:null(),?wxID_ANY,"Snake Simulator bt Tom & Amiram", [{size, {750,770}}]),
+  process_flag(trap_exit,true),
+  wx:new(),
+  Frame = wxFrame:new(wx:null(),?wxID_ANY,"Snake Simulator by Tom & Amiram", [{size, {750,750}}]),
   MB = wxMenuBar:new(),
   File = wxMenu:new([]),
 
   wxMenu:append(File, ?wxID_NEW, "&New Game"),
   wxMenu:appendSeparator(File),
-  PrefMenu = wxMenu:new([]),
-  wxMenuItem:check(wxMenu:appendCheckItem(PrefMenu, ?wxID_ANY, "Show grid", []), [{check,true}]),
 
-  wxMenu:connect(PrefMenu, command_menu_selected),
-
-  wxMenu:append(File, ?wxID_PREFERENCES, "&Preferences", PrefMenu, []),
 
   wxMenu:appendSeparator(File),
   wxMenu:append(File, ?wxID_EXIT, "&Quit"),
@@ -111,23 +143,6 @@ init([]) ->
   wxFrame:centreOnScreen(Frame),
   wxFrame:show(Frame),
 
-  %Logo = wxBitmap:new(wxImage:scale(wxImage:new("Snake.jpg"),313,235)),
-  %CDC = wxClientDC:new(Frame),
-  %wxDC:drawBitmap(CDC, Logo, {667,150}),
-
-  % Title of the game
-  %Font = wxFont:new(55, ?wxFONTFAMILY_SCRIPT, ?wxFONTSTYLE_NORMAL, ? wxFONTWEIGHT_BOLD),
-  %wxDC:setTextForeground(CDC,{100,90,101}),
-  %wxDC:setFont(CDC,Font),
-  %wxDC:drawText(CDC, "Snake", {735, 45}),
-  %Font2 = wxFont:new(20, ?wxFONTFAMILY_DECORATIVE, ?wxFONTSTYLE_NORMAL, ? wxFONTWEIGHT_BOLD),
-  %wxDC:setFont(CDC,Font2),
-  %wxDC:drawText(CDC, "In Distributed Erlang", {690,400}),
-  %button
-  %AddSnake = wxButton:new(Frame, 10, [{label,"Add Snake"}, {pos, {750,480}}, {size, {90,35}}]),
-  %wxButton:connect(AddSnake, command_button_clicked),
-
-
 
   GLAttrib = [{attribList, [?WX_GL_RGBA,?WX_GL_DOUBLEBUFFER,0]}],
   Canvas = wxGLCanvas:new(Frame, GLAttrib),
@@ -146,8 +161,6 @@ init([]) ->
   wxGLCanvas:connect(Canvas, paint),
   wxGLCanvas:connect(Canvas, size),
 
-  wxFrame:setStatusText(Frame, "Number of Snakes: 4", [{number, 0}]),
-  wxFrame:setStatusText(Frame, "Food Count: 4", [{number, 1}]),
 
   wxGLCanvas:setSize(Canvas, 750,750),
   {W,H} = wxGLCanvas:getSize(Canvas),
@@ -159,9 +172,13 @@ init([]) ->
 
 
 
-  _ = snake_local:start_remote(MapWidth,MapHeight,7,40,?ServerA,?ServerB,?ServerC,?ServerD),
+  _ = snake_local:start_remote(MapWidth,MapHeight,2,20,?ServerA,?ServerB,?ServerC,?ServerD),
 
-  State = #state{wx = Wx, frame = Frame, canvas = Canvas,block_size = {BlockWidth,BlockHeight}, size = {100,100} },
+  receive
+    after 100 -> ok
+  end,
+
+  State = #state{frame = Frame, canvas = Canvas,block_size = {BlockWidth,BlockHeight}, size = {100,100} },
   draw(State),
   erlang:send_after(?TIME_INTERVAL, self(), update),
 
@@ -211,10 +228,13 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({'_egl_error_',_,no_gl_context}, State) ->
     {stop, shutdown, State#state{}};
-handle_info(update, State) ->
-    draw(State),
-    erlang:send_after(?TIME_INTERVAL, self(), update),
-    {noreply, State};
+handle_info(update, State = #state{pause = P}) ->
+  draw(State),
+  if
+    not P -> erlang:send_after(?TIME_INTERVAL, self(), update);
+    true -> ok
+  end,
+  {noreply, State};
 handle_info(Msg, State) ->
     io:format("Unhandled message: ~p\n", [Msg]),
     {noreply, State}.
@@ -261,7 +281,7 @@ code_change(_OldVsn, State, _Extra) ->
 init_gl(Canvas) ->
     {W,H} = wxWindow:getClientSize(Canvas),
     io:format("ClientSize: ~p\n", [{W,H}]),
-    gl:clearColor(102,255,102,180),
+    gl:clearColor(0.9,1,0.9,0.2),
     gl:enable(?GL_TEXTURE_2D),
     gl:enable(?GL_COLOR_MATERIAL),
     gl:enable(?GL_BLEND),
@@ -285,9 +305,8 @@ gl_resize(W,H) ->
 %%% Draw functions
 %%%===================================================================
 
-draw(State=#state{manager = Manager,size = Size ,settings = Settings, block_size = BlockSize}) ->
+draw(State=#state{manager = Manager,size = Size , block_size = BlockSize}) ->
     {SnakeList,Food} = snake_local:call(Manager,timestep),
-    gl:clearColor(102,255,102,180),
     gl:clear(?GL_COLOR_BUFFER_BIT),
     draw_map(BlockSize, Food),
     lists:foreach(
@@ -297,12 +316,7 @@ draw(State=#state{manager = Manager,size = Size ,settings = Settings, block_size
       end,
       SnakeList
     ),
-    case Settings#settings.show_grid of
-	true ->
-	    draw_grid(Size, BlockSize);
-	false ->
-	    ok
-    end,
+     draw_grid(Size, BlockSize),
     wxGLCanvas:swapBuffers(State#state.canvas).
 
 draw_map({Width, Height}, Food) ->

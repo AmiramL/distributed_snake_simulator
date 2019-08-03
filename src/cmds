@@ -6,6 +6,8 @@ erl -name local@127.0.0.1 -setcookie abc
 
 c(snake_node). c(snake_worker). c(snake_local). c(snake_graphics). c(snake_wx).
 
+ snake_wx:start().
+
 snake_local:start_remote(50,50,1,4,'a@127.0.0.1','a@127.0.0.1','a@127.0.0.1','a@127.0.0.1').
 
 snake_local:start_remote(50,50,1,4,'a@127.0.0.1','b@127.0.0.1','c@127.0.0.1','d@127.0.0.1').

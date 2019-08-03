@@ -38,6 +38,7 @@
 %%%===================================================================
 
 start_remote(MaxX,MaxY,NumOfSnakes,FoodCount,NodeA,NodeB,NodeC,NodeD) ->
+  process_flag(trap_exit,true),
   BU_table = ets:new(backUp,[set,public,named_table]),
   X = MaxX div 2,
   Y = MaxY div 2,
@@ -54,6 +55,7 @@ start_remote(MaxX,MaxY,NumOfSnakes,FoodCount,NodeA,NodeB,NodeC,NodeD) ->
   BU_table.
 
 start(MaxX,MaxY,NumOfSnakes,FoodCount) ->
+  process_flag(trap_exit,true),
   X = MaxX div 2,
   Y = MaxY div 2,
   Food = FoodCount div 4,
@@ -138,17 +140,19 @@ handle_call(timestep, _From, State = #state{worker_node = Nodes}) ->
     _ -> NewNodes = restoreData(DeadNodes,Nodes)
   end,
   [Food,SnakeList] = lists:foldr(
-    fun(W = {Worker,_},[F,S]) ->
-      [{snakes,SnakesNode},{food,FoodNode}] = snake_worker:call(W, get_data),
-      ets:insert(backUp,{Worker,SnakesNode,FoodNode}),
-      [F++FoodNode,S++SnakesNode]
-    end,
+    fun(W ,[F,S]) -> get_node_data(W, [F,S]) end,
     [[],[]],
     NewNodes
   ),
   detectColissions(SnakeList),
   lists:foreach(
-    fun(W) -> {timestep, _S} = snake_worker:call(W,{timestep,Food}) end,
+    fun(W = {_Name,Node}) ->
+      B = lists:member(Node,nodes(connected)),
+      if
+        B -> {timestep, _S} = snake_worker:call(W,{timestep,Food});
+        true -> ok
+      end
+    end,
     NewNodes
   ),
   {reply, {SnakeList,Food} , State#state{worker_node = NewNodes}};
@@ -210,6 +214,11 @@ handle_cast({move_snake,Snake}, State = #state{worker_node = Nodes, corners = Co
   end,
   {noreply, State};
 
+handle_cast(new_snake, State = #state{worker_node = Nodes}) ->
+  L = sizeList(Nodes,0),
+  Node = lists:nth(rand:uniform(L),Nodes),
+  cast(Node,new_snake),
+  {noreply, State};
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -248,6 +257,16 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
+
+terminate(new, #state{worker_node = Nodes}) ->
+  ets:delete(backUp),
+  lists:foreach(
+    fun(N) -> stop(N,new) end,
+    Nodes
+  ),
+  ok;
+
+
 terminate(_Reason, _State) ->
   ok.
 
@@ -406,3 +425,13 @@ restoreNode(W,Nodes) ->
 
 sizeList([], A) -> A;
 sizeList([_H | T], A) -> sizeList(T,A + 1).
+
+get_node_data(W = {Worker,Node},[F,S]) ->
+  B = lists:member(Node,nodes(connected)),
+  if
+    B -> [{snakes,SnakesNode},{food,FoodNode}] = snake_worker:call(W, get_data),
+      ets:insert(backUp,{Worker,SnakesNode,FoodNode}),
+      [F++FoodNode,S++SnakesNode];
+    true -> [F,S]
+  end.
+

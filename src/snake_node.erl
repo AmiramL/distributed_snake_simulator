@@ -169,8 +169,13 @@ handle_call(move, _From, State = #state{role = head,direction = Dir, move = Move
 %head move
 handle_call(move, _From, State = #state{role = head,direction = Dir, move = Move, next = Next, location = Loc}) ->
   NextMove = nextMove(Dir, Move),
-  call(Next, {move,Loc}),
-  {reply, {head_moved,Loc,Move}, State#state{location = Move, move = NextMove}};
+  B = is_process_alive(Next),
+  case B of
+    undefined -> NewNext = none;
+    _ -> cast(Next, {move,Loc}), NewNext = Next
+  end,
+
+  {reply, {head_moved,Loc,Move}, State#state{location = Move, move = NextMove,next = NewNext}};
 
 %move and grow link
 handle_call({move,NewLoc}, _From, State = #state{role = link, next = none,location = Loc, grow = true}) ->
@@ -183,8 +188,12 @@ handle_call({move,NewLoc}, _From, State = #state{role = link, next = none}) ->
 
 %link move
 handle_call({move,NewLoc}, _From, State = #state{role = link, next = Next,location = Loc}) ->
-  call(Next, {move,Loc}),
-  {reply, ok, State#state{location = NewLoc}};
+  B = is_process_alive(Next),
+  if
+    B -> call(Next, {move,Loc}), NewNext = Next;
+    true -> NewNext = none
+  end,
+  {reply, ok, State#state{location = NewLoc, next = NewNext}};
 
 %promotion calls
 handle_call({promote,ID,Direction}, _From, State = #state{role = link, location = Loc}) ->
@@ -203,15 +212,23 @@ handle_call(get_snake, _From, State = #state{role = head, id = ID, direction = D
   {reply, [{ID,Dir},Loc], State};
 
 handle_call(get_snake, _From, State = #state{role = head, id = ID, direction = Dir, next = Next,location = Loc}) ->
-  Reply =  [{ID,Dir},Loc | call(Next, get_snake)],
-  {reply, Reply, State};
+  B = is_process_alive(Next),
+  if
+    B -> Reply = [{ID,Dir},Loc | call(Next, get_snake)], NewNext = Next;
+    true -> Reply = [{ID,Dir},Loc], NewNext = none
+  end,
+  {reply, Reply, State#state{next = NewNext}};
 
 handle_call(get_snake, _From, State = #state{next = none,location = Loc}) ->
   {reply, [Loc], State};
 
 handle_call(get_snake, _From, State = #state{next = Next,location = Loc}) ->
-  Reply =  [Loc | call(Next, get_snake)],
-  {reply, Reply, State};
+  B = is_process_alive(Next),
+  if
+    B -> Reply =  [Loc | call(Next, get_snake)], NewNext = Next;
+    true -> Reply = [Loc], NewNext = none
+  end,
+  {reply, Reply, State#state{next = NewNext}};
 
 handle_call({get_node,Location}, _From, State = #state{location = Location}) ->
   {reply, self(), State};
@@ -292,6 +309,9 @@ handle_cast({restore,[N|T]}, State) ->
 handle_cast({cut_node_check,_Loc},State = #state{role = head, next = none}) ->
   {noreply,State};
 
+handle_cast({cut_node_check,Loc},State = #state{role = head, location = Loc}) ->
+  {noreply,State};
+
 handle_cast({cut_node_check,Loc},State = #state{role = head, next = Next}) ->
   cast(Next,{cut_node_check,Loc}),
   {noreply,State};
@@ -319,6 +339,27 @@ handle_cast({cut_node,Loc},State = #state{next = none}) ->
 handle_cast({cut_node,Loc},State = #state{next = Next}) ->
   cast(Next,{cut_node,Loc}),
   {noreply, State};
+
+%move and grow link
+handle_cast({move,NewLoc}, State = #state{role = link, next = none,location = Loc, grow = true}) ->
+  {ok,Next} = start_link(link, Loc),
+  {noreply, State#state{location = NewLoc, next = Next, grow = false}};
+
+%last link move
+handle_cast({move,NewLoc},State = #state{role = link, next = none}) ->
+  {noreply,  State#state{location = NewLoc}};
+%last link move
+handle_cast({move,NewLoc},  State = #state{role = link, next = none}) ->
+  {noreply,  State#state{location = NewLoc}};
+
+%link move
+handle_cast({move,NewLoc},  State = #state{role = link, next = Next,location = Loc}) ->
+  B = is_process_alive(Next),
+  if
+    B -> cast(Next, {move,Loc}), NewNext = Next;
+    true -> NewNext = none
+  end,
+  {noreply, State#state{location = NewLoc, next = NewNext}};
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -380,6 +421,13 @@ terminate(colission, #state{role = head,worker = W,id = ID}) ->
 
 terminate({cut_node,Loc}, #state{location = Loc}) ->
   cut;
+
+terminate(new, #state{next = none}) ->
+  ok;
+
+terminate(new, #state{next = Next}) ->
+  stop(Next,new),
+  ok;
 
 terminate(Reason, _State) ->
   Reason.

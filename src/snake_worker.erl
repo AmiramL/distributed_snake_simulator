@@ -110,10 +110,11 @@ start_link(ID,MinX,MaxX,MinY,MaxY,NumOfSnakes) ->
   {stop, Reason :: term()} | ignore).
 
 init([ID,MinX,MaxX,MinY,MaxY,{Food},Manager]) ->
-
+  process_flag(trap_exit,true),
   {ok, #state{id = ID, last_snake = 0 , snakes = [], corners = {{MinX,MaxX},{MinY,MaxY}},food = Food,manager = Manager}};
 
 init([ID,MinX,MaxX,MinY,MaxY,NumOfSnakes,FoodCount,Manager]) ->
+  process_flag(trap_exit,true),
   SizeX = MaxX - MinX - 2,
   SizeY = MaxY - MinY - 2,
   Food = lists:map(fun({X,Y}) -> {MinX+X+1,MinY+Y+1} end,
@@ -170,16 +171,26 @@ handle_call({timestep,Food}, _From, State = #state{id = _ID,snakes = Snakes, cor
         _ ->
           List = [S | snake_node:call(S,get_head)],
           calcMove(List,Food),
-          snake_node:call(S,move),
-
-          Snake = snake_node:call(S,get_snake),
-          OOB = outOfBounds(lists:nth(2,Snake),Corners),
-          if
-            OOB ->
-              snake_node:stop(S, moved_to_a_different_node),
-              snake_worker:cast(self(),{remove_snake,S}),
-              snake_local:cast(Manager, {move_snake,Snake});
-            true -> ok
+          B2 = whereis(S),
+          case B2 of
+            undefined -> ok;
+            _->
+              snake_node:call(S,move),
+              OOB = outOfBounds(lists:nth(2,List),Corners),
+              if
+                OOB ->
+                  try snake_node:call(S,get_snake) of
+                    Snake ->
+                      snake_node:stop(S, moved_to_a_different_node),
+                      snake_worker:cast(self(),{remove_snake,S}),
+                      snake_local:cast(Manager, {move_snake,Snake})
+                  catch
+                    _:_ -> ok
+                  end;
+                  %Snake = snake_node:call(S,get_snake),
+                  %snake_local:cast(Manager, {move_snake,Snake});
+                true -> ok
+              end
           end
       end
     end,
@@ -257,6 +268,15 @@ handle_cast({add_snake,[{{ID,_},Dir},H |T]},State = #state{last_snake = Last, id
       {noreply, State#state{snakes = [Name | Snakes], last_snake = Last + 1}}
   end;
 
+handle_cast(new_snake,State = #state{last_snake = Last, id = Node, snakes = Snakes, corners = {{MinX,MaxX},{MinY,MaxY}},food = Food}) ->
+  [{Xrel,Yrel}] = generateSnakes(1,MaxX-MinX-1,MaxY-MinY-1,[], Food),
+  [Dir] = generateDirection(1),
+  spawnSnake(I = atom_to_list(Node) ++ "New",[{Last+1, {{MinX + Xrel,MinY + Yrel},Dir}}]),
+  Name = list_to_atom(I ++"_snake" ++ integer_to_list(Last + 1)),
+  {noreply, State#state{snakes = [Name | Snakes], last_snake = Last + 1}};
+
+
+
 handle_cast(_Request, State) ->
   {noreply, State}.
 
@@ -290,6 +310,16 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
+
+terminate(new, #state{snakes = Snakes}) ->
+  lists:foreach(
+    fun(S) ->
+      stop(S,new)
+    end,
+    Snakes
+  ),
+  ok;
+
 terminate(_Reason, _State) ->
   ok.
 
