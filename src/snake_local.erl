@@ -14,9 +14,9 @@
 -include("../include/snake.hrl").
 
 %% API
--export([start_link/0,start/4,call/2,stop/2,cast/2]).
+-export([start_link/0,start/4,call/2,stop/2,cast/2, start_remote/8]).
 
--compile(export_all).
+
 %% gen_server callbacks
 -export([init/1,
   handle_call/3,
@@ -364,30 +364,6 @@ findNode(H,3,Nodes) ->
     true -> N
   end.
 
-
-generateFood(SizeX,SizeY,MinX,MinY,FoodCount,Unavailable) ->
-  FoodList_tmp = generateFood(FoodCount,SizeX,SizeY,Unavailable),
-  FoodList = lists:map(
-    fun({X,Y}) -> {X + MinX, Y + MinY} end,
-    FoodList_tmp
-  ),
-  FoodList.
-
-%generates N random different locations
-generateFood(0,_SizeX,_SizeY,Acc) -> Acc;
-generateFood(FoodCount,SizeX,SizeY,Acc) ->
-  {X,Y} = generateFood(SizeX,SizeY),
-  Dup = lists:member({X,Y}, Acc),
-  if
-    Dup -> generateFood(FoodCount,SizeX,SizeY,Acc);
-    true -> generateFood(FoodCount - 1,SizeX,SizeY,[{X,Y} |Acc])
-  end.
-
-%generate a random location
-generateFood(SizeX,SizeY) ->
-  Xpos = rand:uniform(SizeX),
-  Ypos = rand:uniform(SizeY),
-  {Xpos,Ypos}.
 
 
 

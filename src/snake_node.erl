@@ -345,9 +345,7 @@ handle_cast({move,NewLoc}, State = #state{role = link, next = none,location = Lo
   {ok,Next} = start_link(link, Loc),
   {noreply, State#state{location = NewLoc, next = Next, grow = false}};
 
-%last link move
-handle_cast({move,NewLoc},State = #state{role = link, next = none}) ->
-  {noreply,  State#state{location = NewLoc}};
+
 %last link move
 handle_cast({move,NewLoc},  State = #state{role = link, next = none}) ->
   {noreply,  State#state{location = NewLoc}};

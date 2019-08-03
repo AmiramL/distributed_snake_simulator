@@ -13,7 +13,6 @@
 
 -include("../include/snake.hrl").
 
--compile(export_all).
 
 %% API
 -export([start_link/6,stop/2,call/2,cast/2,start/8,start/7]).
@@ -394,10 +393,6 @@ generateSnake(SizeX,SizeY) ->
   {Xpos,Ypos}.
 
 
-calcDir({X1,Y1},{X2,Y2}) when ((X1+1 =:= X2) and (Y1 =:= Y2))-> ?LEFT;
-calcDir({X1,Y1},{X2,Y2}) when ((X1-1 =:= X2) and (Y1 =:=Y2))-> ?RIGHT;
-calcDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1-1 =:=Y2))-> ?UP;
-calcDir({X1,Y1},{X2,Y2}) when ((X1 =:= X2) and (Y1+1 =:=Y2))-> ?DOWN.
 
 combine([],[]) -> [];
 combine([H1 | T1],[H2 | T2]) ->
