@@ -20,10 +20,10 @@
 
 -define(TIME_INTERVAL,200).
 
--define(ServerA,'a@127.0.0.1').
--define(ServerB,'b@127.0.0.1').
--define(ServerC,'c@127.0.0.1').
--define(ServerD,'d@127.0.0.1').
+-define(ServerA,'a@007-lnx-e2').
+-define(ServerB,'b@007-lnx-f3').
+-define(ServerC,'c@007-lnx-f2').
+-define(ServerD,'d@007-lnx-e2').
 
 
 

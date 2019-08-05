@@ -281,7 +281,7 @@ code_change(_OldVsn, State, _Extra) ->
 init_gl(Canvas) ->
     {W,H} = wxWindow:getClientSize(Canvas),
     io:format("ClientSize: ~p\n", [{W,H}]),
-    gl:clearColor(0.9,1,0.9,0.2),
+    gl:clearColor(0.3,1,0.3,0.4),
     gl:enable(?GL_TEXTURE_2D),
     gl:enable(?GL_COLOR_MATERIAL),
     gl:enable(?GL_BLEND),
@@ -305,7 +305,7 @@ gl_resize(W,H) ->
 %%% Draw functions
 %%%===================================================================
 
-draw(State=#state{manager = Manager,size = Size , block_size = BlockSize}) ->
+draw(State=#state{manager = Manager,size = _Size , block_size = BlockSize}) ->
     {SnakeList,Food} = snake_local:call(Manager,timestep),
     gl:clear(?GL_COLOR_BUFFER_BIT),
     draw_map(BlockSize, Food),
@@ -316,7 +316,7 @@ draw(State=#state{manager = Manager,size = Size , block_size = BlockSize}) ->
       end,
       SnakeList
     ),
-     draw_grid(Size, BlockSize),
+     %draw_grid(Size, BlockSize),
     wxGLCanvas:swapBuffers(State#state.canvas).
 
 draw_map({Width, Height}, Food) ->
@@ -354,15 +354,15 @@ draw_snake_head(H , {Width,Height}) ->
   ok.
 
 
-draw_grid({MapWidth, MapHeight}, {Width, Height}) ->
-    gl:color4ub(0,0,0,50),
+%draw_grid({MapWidth, MapHeight}, {Width, Height}) ->
+%    gl:color4ub(0,0,0,50),
 
-    FunX = fun(PosX) -> snake_graphics:line({PosX*Width, 0}, {PosX*Width, MapHeight*Height}) end,
-    FunY = fun(PosY) -> snake_graphics:line({0, PosY*Height}, {MapWidth*Width, PosY*Height}) end,
-    gl:'begin'(?GL_LINES),
-    wx:foreach(FunX, lists:seq(0,MapWidth)),
-    wx:foreach(FunY, lists:seq(0,MapHeight)),
-    gl:'end'(),
+%    FunX = fun(PosX) -> snake_graphics:line({PosX*Width, 0}, {PosX*Width, MapHeight*Height}) end,
+%    FunY = fun(PosY) -> snake_graphics:line({0, PosY*Height}, {MapWidth*Width, PosY*Height}) end,
+%    gl:'begin'(?GL_LINES),
+%    wx:foreach(FunX, lists:seq(0,MapWidth)),
+%    wx:foreach(FunY, lists:seq(0,MapHeight)),
+%    gl:'end'(),
 
-    ok.
+%    ok.
 
