@@ -36,13 +36,11 @@
   {
     manager = local_game,
     pause = true,
-    wx,
+
     frame,
 		canvas,
     size,
-		block_size = {20,20},
-		move_timer = ?TIME_INTERVAL,
-		node
+		block_size = {20,20}
   }).
 
 
@@ -84,7 +82,7 @@ handle_event(#wx{obj = _Frame, event = #wxCommand{type = command_menu_selected},
 
         snake_local:stop(local_game,new),
         receive
-          after 100 -> ok
+          after 500 -> ok
         end,
         _ = snake_local:start_remote(100,100,2,20,?ServerA,?ServerB,?ServerC,?ServerD),
         receive

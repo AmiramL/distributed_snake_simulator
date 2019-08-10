@@ -261,7 +261,13 @@ handle_info(_Info, State) ->
 terminate(new, #state{worker_node = Nodes}) ->
   ets:delete(backUp),
   lists:foreach(
-    fun(N) -> stop(N,new) end,
+    fun(N = {Worker,Name}) ->
+      B = rpc:call(Name, erlang, whereis, [Worker]) =/= undefined,
+      if
+        B -> stop(N,new) ;
+        true -> ok
+      end
+    end,
     Nodes
   ),
   ok;

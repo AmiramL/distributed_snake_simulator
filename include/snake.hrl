@@ -18,12 +18,12 @@
 -define(LEFT,314).
 -define(SPACEBAR,32).
 
--define(TIME_INTERVAL,200).
+-define(TIME_INTERVAL,100).
 
--define(ServerA,'a@007-lnx-e2').
--define(ServerB,'b@007-lnx-f3').
--define(ServerC,'c@007-lnx-f2').
--define(ServerD,'d@007-lnx-e2').
+-define(ServerA,'a@epsilon-LIFEBOOK-UH552').
+-define(ServerB,'b@epsilon-LIFEBOOK-UH552').
+-define(ServerC,'c@epsilon-LIFEBOOK-UH552').
+-define(ServerD,'d@epsilon-LIFEBOOK-UH552').
 
 
 

@@ -313,7 +313,11 @@ handle_info(_Info, State) ->
 terminate(new, #state{snakes = Snakes}) ->
   lists:foreach(
     fun(S) ->
-      stop(S,new)
+      T = whereis(S),
+      case T of
+         undefined -> ok;
+        _ ->  stop(S,new)
+      end
     end,
     Snakes
   ),
